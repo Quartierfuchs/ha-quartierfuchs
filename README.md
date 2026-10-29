@@ -1,6 +1,6 @@
 # Quartierfuchs für Home Assistant
 
-Verbindet Home Assistant mit [Quartierfuchs](https://portal.haffquartier.de), der Verwaltung für Ferienwohnungen. Freigegebene Thermostate, Lampen, Schalter und Sensoren erscheinen im Quartierfuchs-Portal und lassen sich dort anzeigen und steuern, zum Beispiel um Wohnungen vor der Anreise aufzuheizen.
+Verbindet Home Assistant mit [Quartierfuchs](https://quartierfuchs.de), der Verwaltung für Ferienwohnungen. Freigegebene Thermostate, Lampen, Schalter und Sensoren erscheinen im Quartierfuchs-Portal und lassen sich dort anzeigen und steuern, zum Beispiel um Wohnungen vor der Anreise aufzuheizen.
 
 - **Keine Portfreigabe, kein VPN:** Home Assistant baut die Verbindung selbst verschlüsselt auf (MQTT über TLS). Das funktioniert hinter jedem Router, auch bei DS-Lite oder Mobilfunk.
 - **Du entscheidest, was Quartierfuchs sieht:** Nur ausdrücklich freigegebene Geräte werden übertragen. Alle anderen bleiben unsichtbar.

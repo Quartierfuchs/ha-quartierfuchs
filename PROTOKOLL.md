@@ -8,7 +8,9 @@ Das Portal erzeugt pro Kopplungsvorgang einen Einmalcode (Vorschlag: Format `QF-
 
 ### Anfrage
 
-`POST {portal_url}/api/homeassistant/kopplung`, `Content-Type: application/json`
+`POST https://api.quartierfuchs.de/v1/homeassistant-kopplung`, `Content-Type: application/json`
+
+Die Integration setzt die Adresse aus der Portal-Adresse (Vorgabe `https://api.quartierfuchs.de`) und dem festen Pfad `/v1/homeassistant-kopplung` zusammen. Im Portal ist das die Route `'v1/homeassistant-kopplung'` mit `'zugang' => 'token'` (eigene Prüfung im Endpunkt, keine Portal-Sitzung).
 
 ```json
 {
@@ -34,11 +36,13 @@ Das Portal erzeugt pro Kopplungsvorgang einen Einmalcode (Vorschlag: Format `QF-
 | 410 | Code abgelaufen |
 | sonst | Portalfehler |
 
-Body bei 200:
+Body bei 200 (Format von `Antwort::erfolg()`; zusätzliche Felder wie `success` und `message` ignoriert die Integration):
 
 ```json
 {
-  "broker_host": "mqtt.quartierfuchs.de",
+  "success": true,
+  "message": "Gekoppelt.",
+  "broker_host": "mqtt.kretix.de",
   "broker_port": 8883,
   "broker_tls": true,
   "benutzername": "v12-a3f9c2e1",
@@ -50,33 +54,67 @@ Body bei 200:
 
 Regeln für das Portal:
 
-- `topic_basis` ist immer `qf/<benutzername>`. Damit genügt im Broker eine einzige ACL-Regel (siehe Abschnitt 2).
+- `benutzername` besteht nur aus Kleinbuchstaben, Ziffern und Bindestrichen (keine `/`, `+`, `#`).
+- `topic_basis` ist immer `qf/<benutzername>`.
 - Bei erneuter Kopplung derselben `instanz_id` für denselben Vermieter wird **derselbe `benutzername`** mit einem **neuen Passwort** vergeben. Die Integration bricht sonst die Neuanmeldung mit „falsches Konto“ ab.
-- Das Passwort wird im Portal nur als Hash gespeichert bzw. direkt in die Broker-Benutzerverwaltung geschrieben.
+- Das Passwort wird nur einmal in dieser Antwort übertragen und im Portal nicht gespeichert; im Broker liegt es als Hash.
 
 ## 2. Broker
 
-- Mosquitto, MQTT 3.1.1, TLS auf Port 8883.
-- Client-ID der Integration: `ha-<benutzername>`.
+- Mosquitto 2.0 mit Dynamic-Security-Plugin, MQTT 3.1.1, TLS auf Port 8883 (`mqtt.kretix.de`).
+- **Jede Verbindung braucht eine eigene, nicht leere Client-ID** (`allow_zero_length_clientid false`). Die Integration verwendet `ha-<benutzername>`.
 - Last Will der Integration: `<topic_basis>/status` = `offline` (retained).
 
-ACL-Datei (Auszug):
+### Zugänge und Rollen
 
+| Zugang | Rolle | Zweck |
+|---|---|---|
+| `qf-admin` | `admin` | nur für den Betreiber (Wartung per `mosquitto_ctrl`) |
+| `qf-portal` | `qf-portal` | Datenverkehr des Portals |
+| `qf-portal-verwaltung` | `qf-verwaltung` | Anlegen und Löschen der Instanz-Zugänge |
+| `<benutzername>` | `qf-i-<benutzername>` | je gekoppelte Home-Assistant-Instanz |
+
+Rolle `qf-portal`:
+
+| ACL-Typ | Topic |
+|---|---|
+| subscribePattern | `qf/+/status`, `qf/+/entitaeten`, `qf/+/zustand/#`, `qf/+/antwort` |
+| publishClientSend | `qf/+/befehl`, `qf/+/status`, `qf/+/entitaeten`, `qf/+/zustand/#` |
+
+Schreibrecht auf `status`, `entitaeten` und `zustand/#` dient nur zum Aufräumen (leere Retained-Nachrichten beim Entkoppeln).
+
+Rolle `qf-verwaltung`:
+
+| ACL-Typ | Topic |
+|---|---|
+| publishClientSend | `$CONTROL/dynamic-security/v1` |
+| subscribePattern | `$CONTROL/dynamic-security/v1/response` |
+| publishClientReceive | `$CONTROL/dynamic-security/v1/response` |
+
+### Instanz-Zugänge
+
+Das Dynamic-Security-Plugin von Mosquitto 2.0 kennt **keine Platzhalter** wie `%u` in ACLs. Deshalb bekommt jede gekoppelte Instanz eine **eigene Rolle** `qf-i-<benutzername>` mit genau ihrem Bereich.
+
+Kopplung – das Portal sendet als `qf-portal-verwaltung` an `$CONTROL/dynamic-security/v1`:
+
+```json
+{"commands": [
+  {"command": "createRole", "rolename": "qf-i-v12-a3f9c2e1",
+   "acls": [
+     {"acltype": "publishClientSend", "topic": "qf/v12-a3f9c2e1/#", "priority": 5, "allow": true},
+     {"acltype": "subscribePattern",  "topic": "qf/v12-a3f9c2e1/#", "priority": 5, "allow": true}
+   ]},
+  {"command": "createClient", "username": "v12-a3f9c2e1", "password": "…",
+   "clientid": "ha-v12-a3f9c2e1",
+   "roles": [{"rolename": "qf-i-v12-a3f9c2e1", "priority": 5}]}
+]}
 ```
-# Jede Home-Assistant-Instanz nur in ihrem eigenen Bereich
-pattern readwrite qf/%u/#
 
-# Portal-Benutzer
-user quartierfuchs-portal
-topic read qf/+/status
-topic read qf/+/entitaeten
-topic read qf/+/zustand/#
-topic read qf/+/antwort
-topic write qf/+/befehl
-topic write qf/+/zustand/#
-```
+Mit `clientid` darf sich der Zugang nur mit genau dieser Client-ID anmelden – das ist die ID, die die Integration verwendet.
 
-Schreibrecht des Portals auf `zustand/#` dient nur zum Aufräumen (leere Retained-Nachrichten beim Entkoppeln).
+Erneute Kopplung (Zugang existiert bereits): `setClientPassword` mit neuem Passwort, danach `enableClient`.
+
+Die Antwort des Plugins kommt auf `$CONTROL/dynamic-security/v1/response`; jeder Befehl wird einzeln mit `error` gemeldet, wenn er fehlschlägt (z. B. „Role already exists“).
 
 ## 3. Topics
 
@@ -97,7 +135,7 @@ QoS ist durchgehend 1.
 ```json
 {
   "protokoll_version": 1,
-  "integration_version": "0.1.0",
+  "integration_version": "0.2.0",
   "ha_version": "2026.10.2",
   "entitaeten": [
     {
@@ -193,7 +231,7 @@ Fehlerwerte der Integration:
 
 Das Portal
 
-1. löscht bzw. sperrt den Broker-Benutzer und trennt dessen Verbindung,
-2. löscht die Retained-Nachrichten unter `qf/<benutzername>/#` (leere Nachrichten auf `status`, `entitaeten` und jedes bekannte `zustand/<entity_id>`).
+1. sendet als `qf-portal-verwaltung` `deleteClient` (trennt die Verbindung sofort) und `deleteRole` für `qf-i-<benutzername>`,
+2. löscht als `qf-portal` die Retained-Nachrichten unter `qf/<benutzername>/` (leere Nachrichten auf `status`, `entitaeten` und jedes bekannte `zustand/<entity_id>`).
 
 Lehnt der Broker danach die Anmeldung ab, beendet die Integration ihre Verbindungsversuche und fordert in Home Assistant zur erneuten Kopplung auf.
