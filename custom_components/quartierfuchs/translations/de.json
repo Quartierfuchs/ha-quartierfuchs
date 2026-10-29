@@ -1,0 +1,62 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Mit Quartierfuchs koppeln",
+        "description": "Erzeuge im Quartierfuchs-Portal unter „Home Assistant verbinden“ einen Kopplungscode und gib ihn hier ein. Der Code ist 15 Minuten gültig.",
+        "data": {
+          "code": "Kopplungscode",
+          "portal_url": "Portal-Adresse"
+        },
+        "data_description": {
+          "code": "Der im Portal angezeigte Code, z. B. QF-7K2M-9XPA.",
+          "portal_url": "Nur ändern, wenn dein Quartierfuchs-Portal unter einer anderen Adresse erreichbar ist."
+        }
+      },
+      "entitaeten": {
+        "title": "Geräte freigeben",
+        "description": "Wähle die Geräte, die Quartierfuchs sehen und steuern darf. Alle anderen Geräte bleiben für Quartierfuchs unsichtbar. Die Auswahl kannst du später jederzeit unter „Konfigurieren“ ändern.",
+        "data": {
+          "entitaeten": "Freigegebene Entitäten"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Kopplung erneuern",
+        "description": "Quartierfuchs hat die Anmeldung abgelehnt, zum Beispiel weil die Kopplung im Portal aufgehoben wurde. Erzeuge im Portal einen neuen Kopplungscode und gib ihn hier ein.",
+        "data": {
+          "code": "Kopplungscode"
+        }
+      }
+    },
+    "error": {
+      "code_ungueltig": "Der Kopplungscode ist unbekannt, abgelaufen oder wurde bereits verwendet.",
+      "portal_nicht_erreichbar": "Das Quartierfuchs-Portal ist nicht erreichbar. Bitte prüfe die Portal-Adresse und die Internetverbindung.",
+      "ungueltige_antwort": "Das Quartierfuchs-Portal hat eine ungültige Antwort gesendet.",
+      "url_ungueltig": "Die Portal-Adresse muss mit https:// beginnen (http:// nur für Tests im eigenen Netz).",
+      "unbekannt": "Unerwarteter Fehler. Details stehen im Protokoll."
+    },
+    "abort": {
+      "already_configured": "Diese Kopplung ist bereits eingerichtet.",
+      "reauth_successful": "Die Kopplung wurde erneuert.",
+      "falsches_konto": "Der Code gehört zu einem anderen Quartierfuchs-Konto als diese Kopplung."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Geräte freigeben",
+        "description": "Wähle die Geräte, die Quartierfuchs sehen und steuern darf.",
+        "data": {
+          "entitaeten": "Freigegebene Entitäten"
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "verbindung": {
+        "name": "Verbindung"
+      }
+    }
+  }
+}

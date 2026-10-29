@@ -1,0 +1,62 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Pair with Quartierfuchs",
+        "description": "Create a pairing code in the Quartierfuchs portal under \"Connect Home Assistant\" and enter it here. The code is valid for 15 minutes.",
+        "data": {
+          "code": "Pairing code",
+          "portal_url": "Portal address"
+        },
+        "data_description": {
+          "code": "The code shown in the portal, e.g. QF-7K2M-9XPA.",
+          "portal_url": "Only change this if your Quartierfuchs portal uses a different address."
+        }
+      },
+      "entitaeten": {
+        "title": "Share devices",
+        "description": "Choose the devices Quartierfuchs may see and control. All other devices stay invisible to Quartierfuchs. You can change the selection at any time under \"Configure\".",
+        "data": {
+          "entitaeten": "Shared entities"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Renew pairing",
+        "description": "Quartierfuchs rejected the login, for example because the pairing was removed in the portal. Create a new pairing code in the portal and enter it here.",
+        "data": {
+          "code": "Pairing code"
+        }
+      }
+    },
+    "error": {
+      "code_ungueltig": "The pairing code is unknown, expired or has already been used.",
+      "portal_nicht_erreichbar": "The Quartierfuchs portal cannot be reached. Please check the portal address and your internet connection.",
+      "ungueltige_antwort": "The Quartierfuchs portal sent an invalid response.",
+      "url_ungueltig": "The portal address must start with https:// (http:// only for testing on your own network).",
+      "unbekannt": "Unexpected error. See the log for details."
+    },
+    "abort": {
+      "already_configured": "This pairing is already set up.",
+      "reauth_successful": "The pairing has been renewed.",
+      "falsches_konto": "The code belongs to a different Quartierfuchs account than this pairing."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Share devices",
+        "description": "Choose the devices Quartierfuchs may see and control.",
+        "data": {
+          "entitaeten": "Shared entities"
+        }
+      }
+    }
+  },
+  "entity": {
+    "binary_sensor": {
+      "verbindung": {
+        "name": "Connection"
+      }
+    }
+  }
+}
