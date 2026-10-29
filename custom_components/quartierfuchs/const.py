@@ -11,8 +11,8 @@ DOMAIN: Final = "quartierfuchs"
 PROTOKOLL_VERSION: Final = 1
 
 # Portal
-STANDARD_PORTAL_URL: Final = "https://portal.haffquartier.de"
-KOPPLUNGS_PFAD: Final = "/api/homeassistant/kopplung"
+STANDARD_PORTAL_URL: Final = "https://api.quartierfuchs.de"
+KOPPLUNGS_PFAD: Final = "/v1/homeassistant-kopplung"
 KOPPLUNGS_TIMEOUT: Final = 20
 
 # Schlüssel im Konfigurationseintrag (data)
