@@ -34,7 +34,7 @@ from homeassistant.helpers import (
     entity_registry as er,
 )
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.json import json_dumps
 from homeassistant.util.json import json_loads
 
@@ -48,6 +48,7 @@ from .const import (
     KONF_BROKER_TLS,
     KONF_PASSWORT,
     KONF_TOPIC_BASIS,
+    LISTE_VERZOEGERUNG,
     MAX_NACHRICHTENGROESSE,
     MQTT_KEEPALIVE,
     MQTT_QOS,
@@ -96,6 +97,8 @@ class QuartierfuchsVerbindung:
         )
         self._client: mqtt.Client | None = None
         self._abmeldung_zustaende: CALLBACK_TYPE | None = None
+        self._abmeldungen_register: list[CALLBACK_TYPE] = []
+        self._geplante_liste: CALLBACK_TYPE | None = None
         self._verbunden = False
         self._gestoppt = False
         self._reauth_ausgeloest = False
@@ -118,6 +121,7 @@ class QuartierfuchsVerbindung:
         """Baut den MQTT-Client auf und startet die Verbindung im Hintergrund."""
         self._client = await self.hass.async_add_executor_job(self._client_erzeugen)
         self._zustaende_abonnieren()
+        self._register_beobachten()
         await self.hass.async_add_executor_job(self._client_verbinden, self._client)
 
     async def async_stoppen(self) -> None:
@@ -126,6 +130,12 @@ class QuartierfuchsVerbindung:
         if self._abmeldung_zustaende is not None:
             self._abmeldung_zustaende()
             self._abmeldung_zustaende = None
+        for abmelden in self._abmeldungen_register:
+            abmelden()
+        self._abmeldungen_register = []
+        if self._geplante_liste is not None:
+            self._geplante_liste()
+            self._geplante_liste = None
 
         client = self._client
         self._client = None
@@ -292,6 +302,47 @@ class QuartierfuchsVerbindung:
     @callback
     def _zustand_geaendert(self, ereignis: Event[EventStateChangedData]) -> None:
         self._zustand_veroeffentlichen(ereignis.data["entity_id"], ereignis.data["new_state"])
+        # Taucht eine Entität erst nach dem Start auf (z. B. Zigbee-Thermostate),
+        # stimmen Name und Bereich in der zuletzt gesendeten Liste ggf. nicht.
+        if ereignis.data["old_state"] is None:
+            self._liste_spaeter_senden()
+
+    @callback
+    def _register_beobachten(self) -> None:
+        """Sendet die Geräteliste neu, wenn Entitäten, Geräte oder Bereiche umbenannt werden."""
+        for abmelden in self._abmeldungen_register:
+            abmelden()
+
+        @callback
+        def _entitaet_geaendert(ereignis: Event) -> None:
+            daten = ereignis.data
+            if daten.get("entity_id") in self._freigaben or daten.get("old_entity_id") in self._freigaben:
+                self._liste_spaeter_senden()
+
+        @callback
+        def _sonstiges_geaendert(_ereignis: Event) -> None:
+            if self._freigaben:
+                self._liste_spaeter_senden()
+
+        self._abmeldungen_register = [
+            self.hass.bus.async_listen(er.EVENT_ENTITY_REGISTRY_UPDATED, _entitaet_geaendert),
+            self.hass.bus.async_listen(dr.EVENT_DEVICE_REGISTRY_UPDATED, _sonstiges_geaendert),
+            self.hass.bus.async_listen(ar.EVENT_AREA_REGISTRY_UPDATED, _sonstiges_geaendert),
+        ]
+
+    @callback
+    def _liste_spaeter_senden(self) -> None:
+        """Fasst viele Änderungen kurz hintereinander zu einer Geräteliste zusammen."""
+        if self._geplante_liste is not None or self._gestoppt:
+            return
+
+        @callback
+        def _jetzt(_zeit: Any) -> None:
+            self._geplante_liste = None
+            if self._verbunden and not self._gestoppt:
+                self._entitaeten_veroeffentlichen()
+
+        self._geplante_liste = async_call_later(self.hass, LISTE_VERZOEGERUNG, _jetzt)
 
     @callback
     def _alles_veroeffentlichen(self) -> None:
@@ -304,6 +355,9 @@ class QuartierfuchsVerbindung:
 
     @callback
     def _entitaeten_veroeffentlichen(self) -> None:
+        if self._geplante_liste is not None:
+            self._geplante_liste()
+            self._geplante_liste = None
         entitaets_register = er.async_get(self.hass)
         geraete_register = dr.async_get(self.hass)
         bereichs_register = ar.async_get(self.hass)
@@ -329,7 +383,7 @@ class QuartierfuchsVerbindung:
                 {
                     "entity_id": entity_id,
                     "domain": domain,
-                    "name": zustand.name if zustand is not None else entity_id,
+                    "name": anzeigename(entity_id, zustand, registereintrag, geraet_name),
                     "bereich": bereich.name if bereich is not None else None,
                     "geraet": geraet_name,
                     "device_class": attribute.get("device_class"),
@@ -459,3 +513,27 @@ class QuartierfuchsVerbindung:
             self._topic(TOPIC_ANTWORT),
             json_dumps({"id": befehl_id, "erfolg": erfolg, "fehler": fehler}),
         )
+
+
+def anzeigename(
+    entity_id: str,
+    zustand: State | None,
+    registereintrag: er.RegistryEntry | None,
+    geraet_name: str | None,
+) -> str:
+    """Name, wie Home Assistant ihn anzeigt – auch, wenn noch kein Zustand vorliegt.
+
+    1. friendly_name des aktuellen Zustands,
+    2. sonst aus dem Register: eigener Name (name) bzw. der der Integration
+       (original_name); bei has_entity_name mit vorangestelltem Gerätenamen,
+    3. sonst die entity_id.
+    """
+    if zustand is not None and (name := zustand.attributes.get("friendly_name")):
+        return str(name)
+    if registereintrag is not None:
+        eigener = registereintrag.name or registereintrag.original_name
+        if registereintrag.has_entity_name and geraet_name:
+            return f"{geraet_name} {eigener}" if eigener else geraet_name
+        if eigener:
+            return str(eigener)
+    return entity_id

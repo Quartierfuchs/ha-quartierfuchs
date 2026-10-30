@@ -92,3 +92,7 @@ ANMELDUNG_ABGELEHNT_CODES: Final = frozenset({4, 5, 134, 135})
 
 # Dispatcher-Signal für Änderungen des Verbindungsstatus (Platzhalter: entry_id)
 SIGNAL_VERBINDUNG: Final = "quartierfuchs_verbindung_{}"
+
+# Nach Umbenennungen bzw. neu auftauchenden Entitäten: Geräteliste nach so vielen
+# Sekunden neu senden (fasst mehrere Änderungen zusammen)
+LISTE_VERZOEGERUNG: Final = 5
