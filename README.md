@@ -40,6 +40,8 @@ Die Auswahl lässt sich jederzeit über **Konfigurieren** bei der Integration ä
 
 Alle anderen Dienste und Parameter werden von der Integration abgelehnt, auch wenn das Portal sie anfordert.
 
+**Verlauf:** Für freigegebene Thermostate und Sensoren darf das Portal den Verlauf aus dem Recorder von Home Assistant abrufen (Temperaturdiagramme), verdichtet auf 15 Minuten. Wie weit er zurückreicht, bestimmt der Recorder (Vorgabe 10 Tage, `purge_keep_days`).
+
 ## Kopplung aufheben
 
 Integration in Home Assistant löschen und die Kopplung im Portal entfernen. Wird die Kopplung nur im Portal entfernt, fordert Home Assistant zur erneuten Kopplung auf.

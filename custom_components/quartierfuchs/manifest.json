@@ -1,12 +1,19 @@
 {
   "domain": "quartierfuchs",
   "name": "Quartierfuchs",
-  "codeowners": ["@Quartierfuchs"],
+  "after_dependencies": [
+    "recorder"
+  ],
+  "codeowners": [
+    "@Quartierfuchs"
+  ],
   "config_flow": true,
   "documentation": "https://github.com/Quartierfuchs/ha-quartierfuchs",
   "integration_type": "service",
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/Quartierfuchs/ha-quartierfuchs/issues",
-  "requirements": ["paho-mqtt>=2.0.0"],
-  "version": "0.2.1"
+  "requirements": [
+    "paho-mqtt>=2.0.0"
+  ],
+  "version": "0.3.0"
 }
