@@ -198,6 +198,10 @@ Weitere Typen:
 
 - `{"id": "…", "typ": "synchronisieren"}`: Integration sendet `status`, `entitaeten` und alle Zustände neu.
 - `{"id": "…", "typ": "ping"}`: Integration antwortet nur.
+- `{"id": "…", "typ": "verlauf", "entity_id": "climate.bad", "beginn": "2026-10-01T00:00:00+00:00", "ende": "…"}`
+  (ab Version 0.3.0): Verlauf einer freigegebenen `climate`- oder `sensor`-Entität aus dem Recorder von Home Assistant.
+  `beginn`/`ende` als ISO-Zeitpunkt (ohne Zone = UTC), Vorgabe: der letzte Tag; höchstens 31 Tage je Abfrage.
+  Die Antwort enthält `daten` (siehe unten). Ältere Integrationen antworten mit `unbekannter_typ`.
 
 Die Integration prüft vor jeder Ausführung:
 
@@ -214,17 +218,37 @@ Die Integration prüft vor jeder Ausführung:
 
 Befehle ohne `id` werden ausgeführt, aber nicht beantwortet.
 
+Antwort auf `verlauf`:
+
+```json
+{"id": "v1", "erfolg": true, "fehler": null, "daten": {
+  "entity_id": "climate.bad", "raster_minuten": 15,
+  "beginn": "2026-10-01T00:00:00+00:00", "ende": "2026-10-31T12:00:00+00:00",
+  "punkte": [[1793437200, 18.5, 21.0, 1], [1793438100, 19.4, 21.0, 0]]
+}}
+```
+
+Je Punkt: `[Unix-Zeit Rasterbeginn, Ist, Soll, heizt]`, je Rasterfeld der letzte Wert. Bei `climate`:
+`current_temperature`, `temperature` (`null` bei „off“), `hvac_action == "heating"` als 1/0. Bei `sensor`:
+`[t, Messwert, null, null]`. Nicht verfügbar: `[t, null, null, null]`. Felder ohne Änderung fehlen – der
+letzte Wert gilt weiter. Wie weit der Verlauf zurückreicht, bestimmt der Recorder von Home Assistant
+(`purge_keep_days`, Vorgabe 10 Tage).
+
 Fehlerwerte der Integration:
 
 | `fehler` | Bedeutung |
 |---|---|
-| `unbekannter_typ` | `typ` ist nicht `dienst`, `synchronisieren` oder `ping` |
+| `unbekannter_typ` | `typ` ist nicht `dienst`, `synchronisieren`, `ping` oder `verlauf` |
 | `entitaet_nicht_freigegeben` | Entität nicht freigegeben |
 | `domain_passt_nicht` | `domain` passt nicht zur `entity_id` |
 | `dienst_nicht_erlaubt` | Dienst für diese Domain nicht erlaubt |
 | `ungueltige_daten` | `data` ist kein Objekt |
 | `unzulaessige_parameter: …` | nicht erlaubte Parameter in `data` |
 | `zeitueberschreitung` | Dienst hat nicht innerhalb von 15 Sekunden geantwortet |
+| `verlauf_nicht_moeglich` | `verlauf` für diese Domain nicht möglich (nur `climate`, `sensor`) |
+| `kein_recorder` | Recorder von Home Assistant ist nicht aktiv |
+| `ungueltiger_zeitraum` | `beginn` liegt nicht vor `ende` |
+| `verlauf_fehler` | Recorder konnte den Verlauf nicht lesen |
 | sonstiger Text | Fehlermeldung von Home Assistant |
 
 ## 4. Entkoppeln

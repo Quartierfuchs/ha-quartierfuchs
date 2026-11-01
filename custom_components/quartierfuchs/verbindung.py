@@ -8,6 +8,8 @@ Portals aus, sofern Entität, Dienst und Parameter freigegeben sind.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta
+from functools import partial
 import logging
 import ssl
 from typing import Any
@@ -36,6 +38,7 @@ from homeassistant.helpers import (
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.json import json_dumps
+from homeassistant.util import dt as dt_util
 from homeassistant.util.json import json_loads
 
 from .const import (
@@ -63,6 +66,9 @@ from .const import (
     TOPIC_STATUS,
     TOPIC_ZUSTAND,
     UNTERSTUETZTE_DOMAINS,
+    VERLAUF_DOMAINS,
+    VERLAUF_MAX_TAGE,
+    VERLAUF_RASTER_MINUTEN,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -462,6 +468,9 @@ class QuartierfuchsVerbindung:
             self._alles_veroeffentlichen()
             self._antworten(befehl_id, True)
             return
+        if typ == "verlauf":
+            await self._async_verlauf(befehl_id, befehl)
+            return
         if typ != "dienst":
             self._antworten(befehl_id, False, "unbekannter_typ")
             return
@@ -505,14 +514,77 @@ class QuartierfuchsVerbindung:
         else:
             self._antworten(befehl_id, True)
 
+    async def _async_verlauf(self, befehl_id: Any, befehl: dict[str, Any]) -> None:
+        """Liefert den Verlauf einer freigegebenen Entität aus dem Recorder, im Raster verdichtet."""
+        entity_id = befehl.get("entity_id")
+        if not isinstance(entity_id, str) or entity_id not in self._freigaben:
+            self._antworten(befehl_id, False, "entitaet_nicht_freigegeben")
+            return
+        if split_entity_id(entity_id)[0] not in VERLAUF_DOMAINS:
+            self._antworten(befehl_id, False, "verlauf_nicht_moeglich")
+            return
+        if "recorder" not in self.hass.config.components:
+            self._antworten(befehl_id, False, "kein_recorder")
+            return
+
+        jetzt = dt_util.utcnow()
+        ende = _zeitpunkt(befehl.get("ende")) or jetzt
+        beginn = _zeitpunkt(befehl.get("beginn")) or ende - timedelta(days=1)
+        ende = min(ende, jetzt)
+        beginn = max(beginn, ende - timedelta(days=VERLAUF_MAX_TAGE))
+        if beginn >= ende:
+            self._antworten(befehl_id, False, "ungueltiger_zeitraum")
+            return
+
+        # pylint: disable-next=import-outside-toplevel
+        from homeassistant.components.recorder import get_instance, history
+
+        try:
+            ergebnis = await get_instance(self.hass).async_add_executor_job(
+                partial(
+                    history.get_significant_states,
+                    self.hass,
+                    beginn,
+                    ende,
+                    entity_ids=[entity_id],
+                    include_start_time_state=True,
+                    significant_changes_only=False,
+                    minimal_response=False,
+                    no_attributes=False,
+                )
+            )
+        except Exception as fehler:  # noqa: BLE001 - Recorder-Fehler gehen als Antwort zurück
+            _LOGGER.warning("Verlauf für %s nicht lesbar: %s", entity_id, fehler)
+            self._antworten(befehl_id, False, "verlauf_fehler")
+            return
+
+        punkte = verlauf_verdichten(ergebnis.get(entity_id, []), VERLAUF_RASTER_MINUTEN)
+        self._antworten(
+            befehl_id,
+            True,
+            daten={
+                "entity_id": entity_id,
+                "raster_minuten": VERLAUF_RASTER_MINUTEN,
+                "beginn": beginn.isoformat(),
+                "ende": ende.isoformat(),
+                "punkte": punkte,
+            },
+        )
+
     @callback
-    def _antworten(self, befehl_id: Any, erfolg: bool, fehler: str | None = None) -> None:
+    def _antworten(
+        self,
+        befehl_id: Any,
+        erfolg: bool,
+        fehler: str | None = None,
+        daten: dict[str, Any] | None = None,
+    ) -> None:
         if befehl_id is None:
             return
-        self._senden(
-            self._topic(TOPIC_ANTWORT),
-            json_dumps({"id": befehl_id, "erfolg": erfolg, "fehler": fehler}),
-        )
+        nutzlast: dict[str, Any] = {"id": befehl_id, "erfolg": erfolg, "fehler": fehler}
+        if daten is not None:
+            nutzlast["daten"] = daten
+        self._senden(self._topic(TOPIC_ANTWORT), json_dumps(nutzlast))
 
 
 def anzeigename(
@@ -537,3 +609,53 @@ def anzeigename(
         if eigener:
             return str(eigener)
     return entity_id
+
+
+def _zeitpunkt(wert: Any) -> datetime | None:
+    """ISO-Zeitpunkt aus einem Befehl (ohne Zone = UTC)."""
+    if not isinstance(wert, str):
+        return None
+    zeit = dt_util.parse_datetime(wert)
+    if zeit is None:
+        return None
+    return dt_util.as_utc(zeit if zeit.tzinfo else zeit.replace(tzinfo=dt_util.UTC))
+
+
+def _zahl(wert: Any) -> float | None:
+    try:
+        zahl = float(wert)
+    except (TypeError, ValueError):
+        return None
+    return round(zahl, 2) if zahl == zahl else None  # NaN aussortieren
+
+
+def verlauf_verdichten(zustaende: list[Any], raster_minuten: int) -> list[list[Any]]:
+    """Verdichtet Zustände auf ein Zeitraster: je Rasterfeld der letzte Wert.
+
+    Ergebnis je Punkt: [Unix-Zeit Rasterbeginn, Ist, Soll, heizt]
+      - climate: current_temperature, temperature (None bei „off“), hvac_action == heating (1/0)
+      - sensor:  Messwert, None, None
+    Nicht verfügbare Zustände ergeben [t, None, None, None].
+    """
+    raster = max(1, raster_minuten) * 60
+    felder: dict[int, list[Any]] = {}
+    for zustand in zustaende:
+        state = getattr(zustand, "state", None)
+        attribute = getattr(zustand, "attributes", {}) or {}
+        zeit = getattr(zustand, "last_updated", None) or getattr(zustand, "last_changed", None)
+        if zeit is None:
+            continue
+        feld = int(zeit.timestamp()) // raster * raster
+        domain = split_entity_id(zustand.entity_id)[0] if getattr(zustand, "entity_id", None) else ""
+        if state in (None, "unavailable", "unknown"):
+            felder[feld] = [feld, None, None, None]
+        elif domain == "climate":
+            felder[feld] = [
+                feld,
+                _zahl(attribute.get("current_temperature")),
+                None if state == "off" else _zahl(attribute.get("temperature")),
+                1 if attribute.get("hvac_action") == "heating" else 0,
+            ]
+        else:
+            felder[feld] = [feld, _zahl(state), None, None]
+    return [felder[schluessel] for schluessel in sorted(felder)]

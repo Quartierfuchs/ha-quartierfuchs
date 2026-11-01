@@ -96,3 +96,9 @@ SIGNAL_VERBINDUNG: Final = "quartierfuchs_verbindung_{}"
 # Nach Umbenennungen bzw. neu auftauchenden Entitäten: Geräteliste nach so vielen
 # Sekunden neu senden (fasst mehrere Änderungen zusammen)
 LISTE_VERZOEGERUNG: Final = 5
+
+# Verlauf (Befehl „verlauf“): nur diese Gerätearten, höchstens so viele Tage je
+# Abfrage, verdichtet auf dieses Raster
+VERLAUF_DOMAINS: Final = frozenset({"climate", "sensor"})
+VERLAUF_MAX_TAGE: Final = 31
+VERLAUF_RASTER_MINUTEN: Final = 15
